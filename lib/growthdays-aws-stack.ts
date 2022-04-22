@@ -125,7 +125,7 @@ export class GrowthdaysAwsStack extends Stack {
     const ecsPatterns = new ApplicationLoadBalancedFargateService(this, 'MyFargateService', {
       cluster: ecsCluster,
       cpu: 512,
-      desiredCount: 2,
+      desiredCount: 0,
       taskImageOptions: { image: ContainerImage.fromRegistry(containerRegistry.repositoryUri)},
       memoryLimitMiB: 2048,
       publicLoadBalancer: true,
