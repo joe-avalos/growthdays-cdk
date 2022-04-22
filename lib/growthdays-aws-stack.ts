@@ -1,8 +1,23 @@
 import {CfnOutput, Duration, RemovalPolicy, Stack, StackProps} from 'aws-cdk-lib';
 import {Construct} from 'constructs';
-import {SubnetType, Vpc} from "aws-cdk-lib/aws-ec2";
+import {
+  AmazonLinuxGeneration,
+  AmazonLinuxImage,
+  Instance,
+  InstanceClass,
+  InstanceSize,
+  InstanceType,
+  Peer,
+  Port,
+  SecurityGroup,
+  SubnetType,
+  Vpc
+} from "aws-cdk-lib/aws-ec2";
 import {Bucket, BucketEncryption, HttpMethods, StorageClass} from "aws-cdk-lib/aws-s3";
-import {AccountRootPrincipal} from "aws-cdk-lib/aws-iam";
+import {Credentials, DatabaseInstance, DatabaseInstanceEngine, PostgresEngineVersion} from "aws-cdk-lib/aws-rds";
+import {Cluster, ContainerImage} from "aws-cdk-lib/aws-ecs";
+import {ApplicationLoadBalancedFargateService} from "aws-cdk-lib/aws-ecs-patterns";
+import {Repository} from "aws-cdk-lib/aws-ecr";
 
 // import * as sqs from 'aws-cdk-lib/aws-sqs';
 
@@ -30,8 +45,91 @@ export class GrowthdaysAwsStack extends Stack {
           // a public subnet. There are other options available here.
           subnetType: SubnetType.PUBLIC
         },
+        {
+          // CHANGE: this is it's CIDR mask so 255.255.255.0
+          cidrMask: 28,
+
+          // CHANGE: a name for each of these subnets
+          name: 'isolated-subnet',
+
+          // CHANGE: and the subnet type to be used - here we will have
+          // a public subnet. There are other options available here.
+          subnetType: SubnetType.PRIVATE_ISOLATED
+        },
       ]
     });
+
+    const ec2InstanceSG = new SecurityGroup(this, 'ec2-instance-sg',{
+      vpc
+    })
+
+    ec2InstanceSG.addIngressRule(
+        Peer.anyIpv4(),
+        Port.tcp(22),
+        'allow SSH connections from anywhere'
+    )
+
+    const ec2Instance = new Instance(this, 'ec2-instance',{
+      vpc,
+      vpcSubnets: {
+        subnetType: SubnetType.PUBLIC,
+      },
+      securityGroup: ec2InstanceSG,
+      instanceType: InstanceType.of(
+          InstanceClass.T2,
+          InstanceSize.MICRO,
+      ),
+      machineImage: new AmazonLinuxImage({
+        generation: AmazonLinuxGeneration.AMAZON_LINUX_2,
+      }),
+      keyName: 'GrowthDaysKeyPair'
+    })
+
+    const dbInstance = new DatabaseInstance(this, 'db-instance', {
+      vpc,
+      vpcSubnets: {
+        subnetType: SubnetType.PRIVATE_ISOLATED,
+      },
+      engine: DatabaseInstanceEngine.postgres({
+        version: PostgresEngineVersion.VER_13_3,
+      }),
+      instanceType: InstanceType.of(
+          InstanceClass.BURSTABLE3,
+          InstanceSize.MICRO,
+      ),
+      credentials: Credentials.fromGeneratedSecret('postgres'),
+      multiAz: false,
+      allocatedStorage: 100,
+      maxAllocatedStorage: 105,
+      allowMajorVersionUpgrade: false,
+      autoMinorVersionUpgrade: true,
+      backupRetention: Duration.days(0),
+      deleteAutomatedBackups: true,
+      removalPolicy: RemovalPolicy.DESTROY,
+      deletionProtection: false,
+      databaseName: 'growthDays',
+      publiclyAccessible: false,
+    })
+
+    dbInstance.connections.allowFrom(ec2Instance, Port.tcp(5432))
+
+    const ecsCluster = new Cluster(this, 'MyCluster', {
+      vpc
+    })
+
+    const containerRegistry = new Repository(this, 'ContainerRegistry', {
+      repositoryName: 'growth-days',
+      removalPolicy: RemovalPolicy.DESTROY
+    })
+
+    const ecsPatterns = new ApplicationLoadBalancedFargateService(this, 'MyFargateService', {
+      cluster: ecsCluster,
+      cpu: 512,
+      desiredCount: 2,
+      taskImageOptions: { image: ContainerImage.fromRegistry(containerRegistry.repositoryUri)},
+      memoryLimitMiB: 2048,
+      publicLoadBalancer: true,
+    })
 
     const s3Bucket = new Bucket(this, 's3-bucket',{
       // bucketName: 'growth-days-bucket', // not recommended for globally unique name
@@ -67,10 +165,26 @@ export class GrowthdaysAwsStack extends Stack {
       ]
     })
 
-    const cfnOutput = new CfnOutput(this, 'WebAppURL',{
+    const webAppURLOutput = new CfnOutput(this, 'WebAppURL',{
       value: `https://${s3Bucket.bucketDomainName}/index.html`,
       description: 'The URL for out WebApp',
       exportName: 'webAppURL'
+    })
+    const dbEndpointOutput = new CfnOutput(this, 'dbEndpoint', {
+      value: dbInstance.instanceEndpoint.hostname
+    })
+    const secretNameOutput = new CfnOutput(this, 'secretName',{
+      // @ts-ignore
+      value: dbInstance.secret?.secretName
+    })
+    const repositoryUriOutput = new CfnOutput(this, 'repositoryUri',{
+      value: containerRegistry.repositoryUri
+    })
+    const repositoryNameOutput = new CfnOutput(this, 'repositoryName',{
+      value: containerRegistry.repositoryName
+    })
+    const repositoryArnOutput = new CfnOutput(this, 'repositoryArn',{
+      value: containerRegistry.repositoryArn
     })
   }
 }
