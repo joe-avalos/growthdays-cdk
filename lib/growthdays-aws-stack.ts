@@ -148,7 +148,7 @@ export class GrowthdaysAwsStack extends Stack {
           DB_NAME: 'growthDays',
           DB_USER: 'postgres',
           // @ts-ignore
-          DB_PASSWORD: rdsInstance.secret.secretValue.toString(),
+          DB_PASSWORD: rdsInstance.secret.secretValue.password,
           DB_PORT: '5432'
         }
         // containerPort: 80,
