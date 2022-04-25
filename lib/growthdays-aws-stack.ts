@@ -15,9 +15,10 @@ import {
 } from "aws-cdk-lib/aws-ec2";
 import {Bucket, BucketEncryption, HttpMethods, StorageClass} from "aws-cdk-lib/aws-s3";
 import {Credentials, DatabaseInstance, DatabaseInstanceEngine, PostgresEngineVersion} from "aws-cdk-lib/aws-rds";
-import {Cluster, ContainerImage} from "aws-cdk-lib/aws-ecs";
+import {Cluster, ContainerImage, FargateTaskDefinition} from "aws-cdk-lib/aws-ecs";
 import {ApplicationLoadBalancedFargateService} from "aws-cdk-lib/aws-ecs-patterns";
 import {Repository} from "aws-cdk-lib/aws-ecr";
+import {ManagedPolicy, Role, ServicePrincipal} from "aws-cdk-lib/aws-iam";
 
 // import * as sqs from 'aws-cdk-lib/aws-sqs';
 
@@ -56,7 +57,8 @@ export class GrowthdaysAwsStack extends Stack {
           // a public subnet. There are other options available here.
           subnetType: SubnetType.PRIVATE_ISOLATED
         },
-      ]
+      ],
+      enableDnsSupport: true,
     });
 
     const ec2InstanceSG = new SecurityGroup(this, 'ec2-instance-sg',{
@@ -114,20 +116,51 @@ export class GrowthdaysAwsStack extends Stack {
     dbInstance.connections.allowFrom(ec2Instance, Port.tcp(5432))
 
     const ecsCluster = new Cluster(this, 'MyCluster', {
-      vpc
+      vpc,
     })
 
-    const containerRegistry = new Repository(this, 'ContainerRegistry', {
-      repositoryName: 'growth-days',
-      removalPolicy: RemovalPolicy.DESTROY
-    })
+    // const containerRegistry = new Repository(this, 'ContainerRegistry', {
+    //   repositoryName: 'growth-days',
+    //   imageScanOnPush: true,
+    //   removalPolicy: RemovalPolicy.DESTROY
+    // })
+    // const execRole = new Role(this, 'MyAppTaskExecutionRole-', {
+    //   assumedBy: new ServicePrincipal('ecs-tasks.amazonaws.com')
+    // })
+    // execRole.addManagedPolicy(ManagedPolicy.fromAwsManagedPolicyName('AmazonECSTaskExecutionRolePolicy'))
 
-    const ecsPatterns = new ApplicationLoadBalancedFargateService(this, 'MyFargateService', {
+    // const containerTaskRole = new Role(this, 'MyAppTaskRole-', {
+    //   assumedBy: new ServicePrincipal('ecs-tasks.amazonaws.com')
+    // })
+    // containerTaskRole.addManagedPolicy(ManagedPolicy.fromAwsManagedPolicyName('AmazonDynamoDBFullAccess'))
+    // containerTaskRole.addManagedPolicy(ManagedPolicy.fromAwsManagedPolicyName('AmazonSQSFullAccess'))
+
+    // const gdTaskDef = new FargateTaskDefinition(this, 'gdTaskDef', {
+    //   cpu: 512,
+    //   memoryLimitMiB: 2048,
+    //   executionRole: execRole,
+    //   taskRole: containerTaskRole,
+    // })
+
+    // const repo = Repository.fromRepositoryName(this, 'someRepo', 'growth-days')
+    // const image = ContainerImage.fromEcrRepository(repo, 'latest')
+    // const image = ContainerImage.fromRegistry("amazon/amazon-ecs-sample")
+    // gdTaskDef.addContainer('container-taskdef-growth-days', {
+    //   image,
+    //   containerName: repo.repositoryName,
+    //   portMappings: [
+    //     { containerPort: 3000, hostPort: 3000 }
+    //   ]
+    // })
+    const service = new ApplicationLoadBalancedFargateService(this, 'MyFargateService', {
       cluster: ecsCluster,
-      cpu: 512,
-      desiredCount: 0,
-      taskImageOptions: { image: ContainerImage.fromRegistry(containerRegistry.repositoryUri)},
-      memoryLimitMiB: 2048,
+      serviceName: 'growth-days-service',
+      // taskDefinition: gdTaskDef,
+      taskImageOptions:{
+        image: ContainerImage.fromRegistry("amazon/amazon-ecs-sample"),
+        containerPort: 3000,
+      },
+      assignPublicIp: true,
       publicLoadBalancer: true,
     })
 
@@ -177,14 +210,14 @@ export class GrowthdaysAwsStack extends Stack {
       // @ts-ignore
       value: dbInstance.secret?.secretName
     })
-    const repositoryUriOutput = new CfnOutput(this, 'repositoryUri',{
-      value: containerRegistry.repositoryUri
-    })
-    const repositoryNameOutput = new CfnOutput(this, 'repositoryName',{
-      value: containerRegistry.repositoryName
-    })
-    const repositoryArnOutput = new CfnOutput(this, 'repositoryArn',{
-      value: containerRegistry.repositoryArn
-    })
+    // const repositoryUriOutput = new CfnOutput(this, 'repositoryUri',{
+    //   value: containerRegistry.repositoryUri
+    // })
+    // const repositoryNameOutput = new CfnOutput(this, 'repositoryName',{
+    //   value: containerRegistry.repositoryName
+    // })
+    // const repositoryArnOutput = new CfnOutput(this, 'repositoryArn',{
+    //   value: containerRegistry.repositoryArn
+    // })
   }
 }
