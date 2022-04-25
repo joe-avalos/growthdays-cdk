@@ -1,24 +1,13 @@
 import {CfnOutput, Duration, RemovalPolicy, Stack, StackProps} from 'aws-cdk-lib';
 import {Construct} from 'constructs';
+import {InstanceClass, InstanceSize, InstanceType, Port, SubnetType, Vpc} from "aws-cdk-lib/aws-ec2";
 import {
-  AmazonLinuxGeneration,
-  AmazonLinuxImage,
-  Instance,
-  InstanceClass,
-  InstanceSize,
-  InstanceType,
-  Peer,
-  Port,
-  SecurityGroup,
-  SubnetType,
-  Vpc
-} from "aws-cdk-lib/aws-ec2";
-import {Bucket, BucketEncryption, HttpMethods, StorageClass} from "aws-cdk-lib/aws-s3";
-import {Credentials, DatabaseInstance, DatabaseInstanceEngine, PostgresEngineVersion} from "aws-cdk-lib/aws-rds";
-import {Cluster, ContainerImage, FargateTaskDefinition} from "aws-cdk-lib/aws-ecs";
+  Credentials,
+  DatabaseInstance, DatabaseInstanceEngine, PostgresEngineVersion
+} from "aws-cdk-lib/aws-rds";
+import {Cluster, ContainerImage} from "aws-cdk-lib/aws-ecs";
 import {ApplicationLoadBalancedFargateService} from "aws-cdk-lib/aws-ecs-patterns";
 import {Repository} from "aws-cdk-lib/aws-ecr";
-import {ManagedPolicy, Role, ServicePrincipal} from "aws-cdk-lib/aws-iam";
 
 // import * as sqs from 'aws-cdk-lib/aws-sqs';
 
@@ -87,6 +76,26 @@ export class GrowthdaysAwsStack extends Stack {
     //   keyName: 'GrowthDaysKeyPair'
     // })
     //
+    const rdsInstance = new DatabaseInstance(this, 'Database', {
+      engine: DatabaseInstanceEngine.postgres({version: PostgresEngineVersion.VER_13_3}),
+      credentials: Credentials.fromGeneratedSecret('postgres'),
+      instanceType: InstanceType.of(InstanceClass.BURSTABLE3, InstanceSize.MICRO),
+      vpcSubnets: {
+        subnetType: SubnetType.PRIVATE_ISOLATED,
+      },
+      vpc,
+      multiAz: false,
+      allocatedStorage: 100,
+      maxAllocatedStorage: 105,
+      allowMajorVersionUpgrade: false,
+      autoMinorVersionUpgrade: true,
+      backupRetention: Duration.days(0),
+      deleteAutomatedBackups: true,
+      removalPolicy: RemovalPolicy.DESTROY,
+      deletionProtection: false,
+      databaseName: 'growthDays',
+      publiclyAccessible: false,
+    })
     // const dbInstance = new DatabaseInstance(this, 'db-instance', {
     //   vpc,
     //   vpcSubnets: {
@@ -125,45 +134,30 @@ export class GrowthdaysAwsStack extends Stack {
       imageScanOnPush: true,
       removalPolicy: RemovalPolicy.DESTROY
     })
-    // const execRole = new Role(this, 'MyAppTaskExecutionRole-', {
-    //   assumedBy: new ServicePrincipal('ecs-tasks.amazonaws.com')
-    // })
-    // execRole.addManagedPolicy(ManagedPolicy.fromAwsManagedPolicyName('AmazonECSTaskExecutionRolePolicy'))
-
-    // const containerTaskRole = new Role(this, 'MyAppTaskRole-', {
-    //   assumedBy: new ServicePrincipal('ecs-tasks.amazonaws.com')
-    // })
-    // containerTaskRole.addManagedPolicy(ManagedPolicy.fromAwsManagedPolicyName('AmazonDynamoDBFullAccess'))
-    // containerTaskRole.addManagedPolicy(ManagedPolicy.fromAwsManagedPolicyName('AmazonSQSFullAccess'))
-
-    // const gdTaskDef = new FargateTaskDefinition(this, 'gdTaskDef', {
-    //   cpu: 512,
-    //   memoryLimitMiB: 2048,
-    //   executionRole: execRole,
-    //   taskRole: containerTaskRole,
-    // })
 
     const repo = Repository.fromRepositoryName(this, 'someRepo', 'growth-days')
     const image = ContainerImage.fromEcrRepository(repo, 'latest')
-    // const image = ContainerImage.fromRegistry("amazon/amazon-ecs-sample")
-    // gdTaskDef.addContainer('container-taskdef-growth-days', {
-    //   image,
-    //   containerName: repo.repositoryName,
-    //   portMappings: [
-    //     { containerPort: 3000, hostPort: 3000 }
-    //   ]
-    // })
-    const service = new ApplicationLoadBalancedFargateService(this, 'MyFargateService', {
+
+    const fgService = new ApplicationLoadBalancedFargateService(this, 'MyFargateService', {
       cluster: ecsCluster,
       serviceName: 'growth-days-service',
-      // taskDefinition: gdTaskDef,
       taskImageOptions:{
         image,
+        environment: {
+          DB_HOST: rdsInstance.instanceEndpoint.hostname.toString(),
+          DB_NAME: 'growthDays',
+          DB_USER: 'postgres',
+          // @ts-ignore
+          DB_PASSWORD: rdsInstance.secret.secretValue.toString(),
+          DB_PORT: '5432'
+        }
         // containerPort: 80,
       },
       assignPublicIp: true,
       publicLoadBalancer: true,
     })
+    // service.service.connections.allowTo(rdsInstance, Port.tcp(5432))
+    rdsInstance.connections.allowFrom(fgService.service, Port.tcp(5432))
 
     // const s3Bucket = new Bucket(this, 's3-bucket',{
     //   // bucketName: 'growth-days-bucket', // not recommended for globally unique name
@@ -204,13 +198,13 @@ export class GrowthdaysAwsStack extends Stack {
     //   description: 'The URL for out WebApp',
     //   exportName: 'webAppURL'
     // })
-    // const dbEndpointOutput = new CfnOutput(this, 'dbEndpoint', {
-    //   value: dbInstance.instanceEndpoint.hostname
-    // })
-    // const secretNameOutput = new CfnOutput(this, 'secretName',{
-    //   // @ts-ignore
-    //   value: dbInstance.secret?.secretName
-    // })
+    const dbEndpointOutput = new CfnOutput(this, 'dbEndpoint', {
+      value: rdsInstance.instanceEndpoint.hostname
+    })
+    const secretNameOutput = new CfnOutput(this, 'secretName',{
+      // @ts-ignore
+      value: rdsInstance.secret?.secretName
+    })
     // const repositoryUriOutput = new CfnOutput(this, 'repositoryUri',{
     //   value: containerRegistry.repositoryUri
     // })
