@@ -61,69 +61,70 @@ export class GrowthdaysAwsStack extends Stack {
       enableDnsSupport: true,
     });
 
-    const ec2InstanceSG = new SecurityGroup(this, 'ec2-instance-sg',{
-      vpc
-    })
-
-    ec2InstanceSG.addIngressRule(
-        Peer.anyIpv4(),
-        Port.tcp(22),
-        'allow SSH connections from anywhere'
-    )
-
-    const ec2Instance = new Instance(this, 'ec2-instance',{
-      vpc,
-      vpcSubnets: {
-        subnetType: SubnetType.PUBLIC,
-      },
-      securityGroup: ec2InstanceSG,
-      instanceType: InstanceType.of(
-          InstanceClass.T2,
-          InstanceSize.MICRO,
-      ),
-      machineImage: new AmazonLinuxImage({
-        generation: AmazonLinuxGeneration.AMAZON_LINUX_2,
-      }),
-      keyName: 'GrowthDaysKeyPair'
-    })
-
-    const dbInstance = new DatabaseInstance(this, 'db-instance', {
-      vpc,
-      vpcSubnets: {
-        subnetType: SubnetType.PRIVATE_ISOLATED,
-      },
-      engine: DatabaseInstanceEngine.postgres({
-        version: PostgresEngineVersion.VER_13_3,
-      }),
-      instanceType: InstanceType.of(
-          InstanceClass.BURSTABLE3,
-          InstanceSize.MICRO,
-      ),
-      credentials: Credentials.fromGeneratedSecret('postgres'),
-      multiAz: false,
-      allocatedStorage: 100,
-      maxAllocatedStorage: 105,
-      allowMajorVersionUpgrade: false,
-      autoMinorVersionUpgrade: true,
-      backupRetention: Duration.days(0),
-      deleteAutomatedBackups: true,
-      removalPolicy: RemovalPolicy.DESTROY,
-      deletionProtection: false,
-      databaseName: 'growthDays',
-      publiclyAccessible: false,
-    })
-
-    dbInstance.connections.allowFrom(ec2Instance, Port.tcp(5432))
+    // const ec2InstanceSG = new SecurityGroup(this, 'ec2-instance-sg',{
+    //   vpc
+    // })
+    //
+    // ec2InstanceSG.addIngressRule(
+    //     Peer.anyIpv4(),
+    //     Port.tcp(22),
+    //     'allow SSH connections from anywhere'
+    // )
+    //
+    // const ec2Instance = new Instance(this, 'ec2-instance',{
+    //   vpc,
+    //   vpcSubnets: {
+    //     subnetType: SubnetType.PUBLIC,
+    //   },
+    //   securityGroup: ec2InstanceSG,
+    //   instanceType: InstanceType.of(
+    //       InstanceClass.T2,
+    //       InstanceSize.MICRO,
+    //   ),
+    //   machineImage: new AmazonLinuxImage({
+    //     generation: AmazonLinuxGeneration.AMAZON_LINUX_2,
+    //   }),
+    //   keyName: 'GrowthDaysKeyPair'
+    // })
+    //
+    // const dbInstance = new DatabaseInstance(this, 'db-instance', {
+    //   vpc,
+    //   vpcSubnets: {
+    //     subnetType: SubnetType.PRIVATE_ISOLATED,
+    //   },
+    //   engine: DatabaseInstanceEngine.postgres({
+    //     version: PostgresEngineVersion.VER_13_3,
+    //   }),
+    //   instanceType: InstanceType.of(
+    //       InstanceClass.BURSTABLE3,
+    //       InstanceSize.MICRO,
+    //   ),
+    //   credentials: Credentials.fromGeneratedSecret('postgres'),
+    //   multiAz: false,
+    //   allocatedStorage: 100,
+    //   maxAllocatedStorage: 105,
+    //   allowMajorVersionUpgrade: false,
+    //   autoMinorVersionUpgrade: true,
+    //   backupRetention: Duration.days(0),
+    //   deleteAutomatedBackups: true,
+    //   removalPolicy: RemovalPolicy.DESTROY,
+    //   deletionProtection: false,
+    //   databaseName: 'growthDays',
+    //   publiclyAccessible: false,
+    // })
+    //
+    // dbInstance.connections.allowFrom(ec2Instance, Port.tcp(5432))
 
     const ecsCluster = new Cluster(this, 'MyCluster', {
       vpc,
+      clusterName: 'growth-days-cluster'
     })
 
-    // const containerRegistry = new Repository(this, 'ContainerRegistry', {
-    //   repositoryName: 'growth-days',
-    //   imageScanOnPush: true,
-    //   removalPolicy: RemovalPolicy.DESTROY
-    // })
+    const containerRegistry = new Repository(this, 'ContainerRegistry', {
+      repositoryName: 'growth-days',
+      imageScanOnPush: true,
+      removalPolicy: RemovalPolicy.DESTROY
+    })
     // const execRole = new Role(this, 'MyAppTaskExecutionRole-', {
     //   assumedBy: new ServicePrincipal('ecs-tasks.amazonaws.com')
     // })
@@ -142,8 +143,8 @@ export class GrowthdaysAwsStack extends Stack {
     //   taskRole: containerTaskRole,
     // })
 
-    // const repo = Repository.fromRepositoryName(this, 'someRepo', 'growth-days')
-    // const image = ContainerImage.fromEcrRepository(repo, 'latest')
+    const repo = Repository.fromRepositoryName(this, 'someRepo', 'growth-days')
+    const image = ContainerImage.fromEcrRepository(repo, 'latest')
     // const image = ContainerImage.fromRegistry("amazon/amazon-ecs-sample")
     // gdTaskDef.addContainer('container-taskdef-growth-days', {
     //   image,
@@ -157,59 +158,59 @@ export class GrowthdaysAwsStack extends Stack {
       serviceName: 'growth-days-service',
       // taskDefinition: gdTaskDef,
       taskImageOptions:{
-        image: ContainerImage.fromRegistry("amazon/amazon-ecs-sample"),
-        containerPort: 3000,
+        image,
+        // containerPort: 80,
       },
       assignPublicIp: true,
       publicLoadBalancer: true,
     })
 
-    const s3Bucket = new Bucket(this, 's3-bucket',{
-      // bucketName: 'growth-days-bucket', // not recommended for globally unique name
-      removalPolicy: RemovalPolicy.DESTROY,
-      autoDeleteObjects: true,
-      versioned: false,
-      publicReadAccess: false,
-      encryption: BucketEncryption.S3_MANAGED,
-      websiteIndexDocument: 'index.html',
-      cors: [
-        {
-          allowedMethods: [
-              HttpMethods.GET,
-              HttpMethods.POST,
-              HttpMethods.PUT,
-              HttpMethods.DELETE
-          ],
-          allowedOrigins: ['*'],
-          allowedHeaders:  ['*']
-        }
-      ],
-      lifecycleRules: [
-        {
-          abortIncompleteMultipartUploadAfter: Duration.days(90),
-          expiration: Duration.days(56),
-          transitions: [
-            {
-              storageClass: StorageClass.INFREQUENT_ACCESS,
-              transitionAfter: Duration.days(30)
-            }
-          ]
-        }
-      ]
-    })
-
-    const webAppURLOutput = new CfnOutput(this, 'WebAppURL',{
-      value: `https://${s3Bucket.bucketDomainName}/index.html`,
-      description: 'The URL for out WebApp',
-      exportName: 'webAppURL'
-    })
-    const dbEndpointOutput = new CfnOutput(this, 'dbEndpoint', {
-      value: dbInstance.instanceEndpoint.hostname
-    })
-    const secretNameOutput = new CfnOutput(this, 'secretName',{
-      // @ts-ignore
-      value: dbInstance.secret?.secretName
-    })
+    // const s3Bucket = new Bucket(this, 's3-bucket',{
+    //   // bucketName: 'growth-days-bucket', // not recommended for globally unique name
+    //   removalPolicy: RemovalPolicy.DESTROY,
+    //   autoDeleteObjects: true,
+    //   versioned: false,
+    //   publicReadAccess: false,
+    //   encryption: BucketEncryption.S3_MANAGED,
+    //   websiteIndexDocument: 'index.html',
+    //   cors: [
+    //     {
+    //       allowedMethods: [
+    //           HttpMethods.GET,
+    //           HttpMethods.POST,
+    //           HttpMethods.PUT,
+    //           HttpMethods.DELETE
+    //       ],
+    //       allowedOrigins: ['*'],
+    //       allowedHeaders:  ['*']
+    //     }
+    //   ],
+    //   lifecycleRules: [
+    //     {
+    //       abortIncompleteMultipartUploadAfter: Duration.days(90),
+    //       expiration: Duration.days(56),
+    //       transitions: [
+    //         {
+    //           storageClass: StorageClass.INFREQUENT_ACCESS,
+    //           transitionAfter: Duration.days(30)
+    //         }
+    //       ]
+    //     }
+    //   ]
+    // })
+    //
+    // const webAppURLOutput = new CfnOutput(this, 'WebAppURL',{
+    //   value: `https://${s3Bucket.bucketDomainName}/index.html`,
+    //   description: 'The URL for out WebApp',
+    //   exportName: 'webAppURL'
+    // })
+    // const dbEndpointOutput = new CfnOutput(this, 'dbEndpoint', {
+    //   value: dbInstance.instanceEndpoint.hostname
+    // })
+    // const secretNameOutput = new CfnOutput(this, 'secretName',{
+    //   // @ts-ignore
+    //   value: dbInstance.secret?.secretName
+    // })
     // const repositoryUriOutput = new CfnOutput(this, 'repositoryUri',{
     //   value: containerRegistry.repositoryUri
     // })
