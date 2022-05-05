@@ -102,7 +102,6 @@ export class GrowthdaysAwsStack extends Stack {
         const dbPass = SecretValue.secretsManager(<string>rdsInstance.secret?.secretName, {
             jsonField: 'password'
         })
-        const secVal = rdsInstance.secret?.secretValue.toString()
 
         const fgService = new ApplicationLoadBalancedFargateService(this, 'MyFargateService', {
             cluster: ecsCluster,
