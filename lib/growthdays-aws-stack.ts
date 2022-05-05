@@ -67,9 +67,6 @@ export class GrowthdaysAwsStack extends Stack {
         const repo = Repository.fromRepositoryName(this, 'someRepo', 'growth-days')
         const image = ContainerImage.fromEcrRepository(repo, 'latest')
 
-        const dbPass = SecretValue.secretsManager(<string>rdsInstance.secret?.secretName, {
-            jsonField: 'password'
-        })
 
         const dbUser = SecretValue.secretsManager(<string>rdsInstance.secret?.secretName, {
             jsonField: 'username'
@@ -82,6 +79,11 @@ export class GrowthdaysAwsStack extends Stack {
         const dbPort = SecretValue.secretsManager(<string>rdsInstance.secret?.secretName, {
             jsonField: 'port'
         })
+
+        const dbPass = SecretValue.secretsManager(<string>rdsInstance.secret?.secretName, {
+            jsonField: 'password'
+        })
+        const secVal = rdsInstance.secret?.secretValue.toString()
 
         const fgService = new ApplicationLoadBalancedFargateService(this, 'MyFargateService', {
             cluster: ecsCluster,
